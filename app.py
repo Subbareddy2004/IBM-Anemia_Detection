@@ -13,6 +13,7 @@ import requests
 from pathlib import Path
 import gdown
 import logging
+import sys
 
 # Configure Streamlit page
 st.set_page_config(
@@ -54,7 +55,7 @@ def check_tensorflow_version():
         st.sidebar.warning("⚠️ TensorFlow version may cause compatibility issues")
         return False
 
-def download_file_from_gdrive(file_id, filename):
+def download_file_from_gdrive(file_id, filename, progress_bar=None, status_text=None):
     """Download file from Google Drive using gdown with error handling"""
     try:
         # Create models directory if it doesn't exist
@@ -65,20 +66,23 @@ def download_file_from_gdrive(file_id, filename):
         
         # Skip download if file already exists
         if file_path.exists():
-            st.info(f"✅ {filename} already exists, skipping download.")
+            if status_text:
+                status_text.text(f"✅ {filename} already exists, skipping download.")
             return str(file_path)
         
         # Download from Google Drive
         url = f"https://drive.google.com/uc?id={file_id}"
-        st.info(f"📥 Downloading {filename}...")
+        
+        if status_text:
+            status_text.text(f"📥 Downloading {filename}...")
         
         try:
-            gdown.download(url, str(file_path), quiet=False)
+            gdown.download(url, str(file_path), quiet=True)
         except Exception as download_error:
-            st.error(f"Download failed with gdown: {download_error}")
+            if status_text:
+                status_text.text(f"Download failed with gdown, trying alternative method...")
             
             # Try alternative download method
-            st.info("Trying alternative download method...")
             response = requests.get(url)
             if response.status_code == 200:
                 with open(file_path, 'wb') as f:
@@ -87,53 +91,68 @@ def download_file_from_gdrive(file_id, filename):
                 raise Exception(f"Failed to download with status code: {response.status_code}")
         
         if file_path.exists():
-            st.success(f"✅ {filename} downloaded successfully!")
+            if status_text:
+                status_text.text(f"✅ {filename} downloaded successfully!")
+            if progress_bar:
+                progress_bar.progress(1.0)
             return str(file_path)
         else:
-            st.error(f"❌ Failed to download {filename}")
+            if status_text:
+                status_text.text(f"❌ Failed to download {filename}")
             return None
             
     except Exception as e:
-        st.error(f"❌ Error downloading {filename}: {str(e)}")
+        if status_text:
+            status_text.text(f"❌ Error downloading {filename}: {str(e)}")
         return None
 
-def load_model_with_compatibility(model_path):
+def load_model_with_compatibility(model_path, status_text=None):
     """Load model with various compatibility methods"""
     
     # Method 1: Standard loading
     try:
-        st.info("Attempting standard model loading...")
+        if status_text:
+            status_text.text("Attempting standard model loading...")
         model = load_model(model_path)
-        st.success("✅ Model loaded successfully with standard method")
+        if status_text:
+            status_text.text("✅ Model loaded successfully with standard method")
         return model
     except Exception as e:
-        st.warning(f"Standard loading failed: {str(e)[:100]}...")
+        if status_text:
+            status_text.text("Standard loading failed, trying alternative methods...")
     
     # Method 2: Load with compile=False
     try:
-        st.info("Attempting to load model without compilation...")
+        if status_text:
+            status_text.text("Attempting to load model without compilation...")
         model = load_model(model_path, compile=False)
-        st.success("✅ Model loaded successfully without compilation")
+        if status_text:
+            status_text.text("✅ Model loaded successfully without compilation")
         return model
     except Exception as e:
-        st.warning(f"Loading without compilation failed: {str(e)[:100]}...")
+        if status_text:
+            status_text.text("Loading without compilation failed, trying custom objects...")
     
     # Method 3: Try with custom objects
     try:
-        st.info("Attempting to load with custom objects...")
+        if status_text:
+            status_text.text("Attempting to load with custom objects...")
         custom_objects = {
             'Functional': tf.keras.Model,
             'functional': tf.keras.Model,
         }
         model = load_model(model_path, custom_objects=custom_objects, compile=False)
-        st.success("✅ Model loaded successfully with custom objects")
+        if status_text:
+            status_text.text("✅ Model loaded successfully with custom objects")
         return model
     except Exception as e:
-        st.warning(f"Loading with custom objects failed: {str(e)[:100]}...")
+        if status_text:
+            status_text.text("Loading with custom objects failed, trying weight recreation...")
     
     # Method 4: Try loading weights only (requires model architecture)
     try:
-        st.info("Attempting to recreate model architecture and load weights...")
+        if status_text:
+            status_text.text("Attempting to recreate model architecture and load weights...")
         # Create a simple VGG16-based model architecture
         model = create_vgg16_model_architecture()
         
@@ -145,10 +164,12 @@ def load_model_with_compatibility(model_path):
             temp_model = tf.keras.models.load_model(model_path, compile=False)
             model.set_weights(temp_model.get_weights())
         
-        st.success("✅ Model recreated and weights loaded successfully")
+        if status_text:
+            status_text.text("✅ Model recreated and weights loaded successfully")
         return model
     except Exception as e:
-        st.warning(f"Weight loading failed: {str(e)[:100]}...")
+        if status_text:
+            status_text.text(f"Weight loading failed: {str(e)[:100]}...")
     
     return None
 
@@ -195,73 +216,115 @@ def load_models():
     # Check TensorFlow version
     check_tensorflow_version()
     
-    try:
-        # Download models from Google Drive
-        with st.spinner("Downloading models from Google Drive..."):
+    # Create a single progress container
+    progress_container = st.container()
+    
+    with progress_container:
+        # Single progress bar and status text
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        try:
+            # Download models from Google Drive
+            status_text.text("📥 Initializing model download...")
+            progress_bar.progress(0.1)
+            
+            # Download CNN model
+            status_text.text("📥 Downloading CNN model from Google Drive...")
+            progress_bar.progress(0.2)
             cnn_path = download_file_from_gdrive(
                 GOOGLE_DRIVE_FILES['cnn_model']['id'],
-                GOOGLE_DRIVE_FILES['cnn_model']['filename']
+                GOOGLE_DRIVE_FILES['cnn_model']['filename'],
+                None,
+                status_text
             )
+            progress_bar.progress(0.4)
             
+            # Download RF classifier
+            status_text.text("📥 Downloading Random Forest classifier from Google Drive...")
+            progress_bar.progress(0.5)
             rf_path = download_file_from_gdrive(
                 GOOGLE_DRIVE_FILES['rf_classifier']['id'],
-                GOOGLE_DRIVE_FILES['rf_classifier']['filename']
+                GOOGLE_DRIVE_FILES['rf_classifier']['filename'],
+                None,
+                status_text
             )
-        
-        if not cnn_path or not rf_path:
-            st.error("❌ Failed to download required model files")
-            return None, None, None
-        
-        # Load CNN model with compatibility methods
-        with st.spinner("Loading CNN model..."):
-            cnn_model = load_model_with_compatibility(cnn_path)
-        
-        if cnn_model is None:
-            st.error("❌ Failed to load CNN model with all methods")
-            return None, None, None
-        
-        # Create feature extractor
-        try:
-            # Try to get feature layer by name first
-            feature_layer = None
-            for layer in cnn_model.layers:
-                if 'feature' in layer.name.lower():
-                    feature_layer = layer
-                    break
+            progress_bar.progress(0.6)
             
-            if feature_layer:
-                feature_extractor = tf.keras.models.Model(
-                    inputs=cnn_model.inputs, 
-                    outputs=feature_layer.output
-                )
-                st.info(f"✅ Feature extractor created using layer: {feature_layer.name}")
-            else:
-                # Use second to last layer as fallback
-                feature_extractor = tf.keras.models.Model(
-                    inputs=cnn_model.inputs, 
-                    outputs=cnn_model.layers[-2].output
-                )
-                st.info("✅ Feature extractor created using second-to-last layer")
+            if not cnn_path or not rf_path:
+                status_text.text("❌ Failed to download required model files")
+                progress_bar.progress(0.0)
+                return None, None, None
+            
+            # Load CNN model with compatibility methods
+            status_text.text("🔧 Loading CNN model...")
+            progress_bar.progress(0.7)
+            cnn_model = load_model_with_compatibility(cnn_path, status_text)
+            
+            if cnn_model is None:
+                status_text.text("❌ Failed to load CNN model with all methods")
+                progress_bar.progress(0.0)
+                return None, None, None
+            
+            progress_bar.progress(0.8)
+            
+            # Create feature extractor
+            try:
+                status_text.text("🔧 Creating feature extractor...")
+                # Try to get feature layer by name first
+                feature_layer = None
+                for layer in cnn_model.layers:
+                    if 'feature' in layer.name.lower():
+                        feature_layer = layer
+                        break
                 
-        except Exception as e:
-            st.error(f"❌ Error creating feature extractor: {str(e)}")
-            return None, None, None
-        
-        # Load Random Forest classifier
-        with st.spinner("Loading Random Forest classifier..."):
+                if feature_layer:
+                    feature_extractor = tf.keras.models.Model(
+                        inputs=cnn_model.inputs, 
+                        outputs=feature_layer.output
+                    )
+                    status_text.text(f"✅ Feature extractor created using layer: {feature_layer.name}")
+                else:
+                    # Use second to last layer as fallback
+                    feature_extractor = tf.keras.models.Model(
+                        inputs=cnn_model.inputs, 
+                        outputs=cnn_model.layers[-2].output
+                    )
+                    status_text.text("✅ Feature extractor created using second-to-last layer")
+                    
+            except Exception as e:
+                status_text.text(f"❌ Error creating feature extractor: {str(e)}")
+                progress_bar.progress(0.0)
+                return None, None, None
+            
+            progress_bar.progress(0.9)
+            
+            # Load Random Forest classifier
+            status_text.text("🔧 Loading Random Forest classifier...")
             try:
                 rf_classifier = joblib.load(rf_path)
-                st.success("✅ Random Forest classifier loaded successfully")
+                status_text.text("✅ Random Forest classifier loaded successfully")
             except Exception as e:
-                st.error(f"❌ Error loading Random Forest classifier: {str(e)}")
+                status_text.text(f"❌ Error loading Random Forest classifier: {str(e)}")
+                progress_bar.progress(0.0)
                 return None, None, None
-        
-        return cnn_model, feature_extractor, rf_classifier
-        
-    except Exception as e:
-        st.error(f"❌ Error in load_models: {str(e)}")
-        st.error("Please check the Google Drive file IDs and permissions.")
-        return None, None, None
+            
+            # Final success
+            progress_bar.progress(1.0)
+            status_text.text("✅ All models loaded successfully!")
+            
+            # Clear the progress display after a short delay
+            import time
+            time.sleep(1)
+            progress_container.empty()
+            
+            return cnn_model, feature_extractor, rf_classifier
+            
+        except Exception as e:
+            status_text.text(f"❌ Error in load_models: {str(e)}")
+            st.error("Please check the Google Drive file IDs and permissions.")
+            progress_bar.progress(0.0)
+            return None, None, None
 
 def preprocess_image(image):
     """Preprocess image exactly as done during training"""
@@ -365,9 +428,9 @@ def main():
         )
         
         if uploaded_file is not None:
-            # Display uploaded image
+            # Display uploaded image - Fixed deprecated parameter
             image = Image.open(uploaded_file)
-            st.image(image, caption="Uploaded Image", use_column_width=True)
+            st.image(image, caption="Uploaded Image", use_container_width=True)
             
             # Add prediction button
             if st.button("🔍 Analyze for Anemia", type="primary"):
@@ -488,7 +551,8 @@ def main():
     # System information
     st.sidebar.header("🖥️ System Info")
     check_tensorflow_version()
-    st.sidebar.write(f"Python Version: {st.version.python_version}")
+    # Fixed the Python version display
+    st.sidebar.write(f"Python Version: {sys.version.split()[0]}")
     
     # Model information expander
     with st.expander("🔧 Technical Details"):
