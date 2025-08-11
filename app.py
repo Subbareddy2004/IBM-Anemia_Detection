@@ -32,7 +32,7 @@ GOOGLE_DRIVE_FILES = {
         'filename': 'best_cnn_model.keras'
     },
     'rf_classifier': {
-        'id': 'YOUR_RF_CLASSIFIER_FILE_ID',  # You need to upload RF classifier to drive and get this ID
+        'id': '1hQ8IkUWZJjVKd-rtKaLriBa9kQVscUeT',  # You need to upload RF classifier to drive and get this ID
         'filename': 'best_classifier.joblib'
     }
 }
