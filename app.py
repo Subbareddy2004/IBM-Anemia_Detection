@@ -28,7 +28,7 @@ CLASS_NAMES = ['Anemic', 'Non-anemic']
 # Google Drive file IDs (extract from your drive links)
 GOOGLE_DRIVE_FILES = {
     'cnn_model': {
-        'id': '1qsVB_P2GlOdzwuzKHtazmTPafE7Nwb_P',  # Extract this from your drive link
+        'id': '1qsVB_P2GIOdzwuzKHtazmTPafE7Nwb_P',   # Extract this from your drive link
         'filename': 'best_cnn_model.keras'
     },
     'rf_classifier': {
